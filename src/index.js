@@ -1,0 +1,330 @@
+require('dotenv').config();
+const express = require('express');
+const {
+  getWebinarParticipants,
+  getPastWebinars,
+  getWebinarAbsentees,
+} = require('./zoom');
+const { createOrUpdateLead, ensureCustomFieldsExist } = require('./close');
+const {
+  scoreWebinarAttendee,
+  scoreTypeformApplication,
+  scoreCreditReportGPT,
+  scoreCreditReportTypeform,
+  scoreNoShow,
+  scoreBooked,
+} = require('./scoring');
+
+const app = express();
+app.use(express.json());
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({
+    status: 'running',
+    message: 'Credit Stacking Lead Automation',
+    endpoints: {
+      'POST /webhook/typeform-application': 'Typeform application submissions',
+      'POST /webhook/typeform-credit-report': 'Typeform credit report submissions',
+      'POST /webhook/gpt-credit-report': 'GPT credit report submissions',
+      'POST /webhook/booking': 'Calendar booking notifications',
+      'POST /process-webinar/:webinarId': 'Process a specific webinar',
+      'POST /process-recent-webinars': 'Process all recent webinars',
+    },
+  });
+});
+
+// ============================================
+// WEBHOOK: Typeform Application
+// ============================================
+app.post('/webhook/typeform-application', async (req, res) => {
+  try {
+    const { form_response } = req.body;
+
+    let email = '';
+    let name = '';
+
+    for (const answer of form_response?.answers || []) {
+      if (answer.type === 'email') {
+        email = answer.email;
+      }
+      if (answer.type === 'text' && answer.field?.ref?.toLowerCase().includes('name')) {
+        name = answer.text;
+      }
+    }
+
+    if (!email) {
+      const emailField = form_response?.answers?.find((a) => a.field?.type === 'email');
+      email = emailField?.email || '';
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'No email found in submission' });
+    }
+
+    const scoring = scoreTypeformApplication();
+    await createOrUpdateLead({
+      email,
+      name,
+      source: scoring.source,
+    });
+
+    res.json({ success: true, email, source: scoring.source });
+  } catch (error) {
+    console.error('Typeform application webhook error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// WEBHOOK: Typeform Credit Report
+// ============================================
+app.post('/webhook/typeform-credit-report', async (req, res) => {
+  try {
+    const { form_response } = req.body;
+
+    let email = '';
+    let name = '';
+
+    for (const answer of form_response?.answers || []) {
+      if (answer.type === 'email') {
+        email = answer.email;
+      }
+      if (answer.type === 'text' && answer.field?.ref?.toLowerCase().includes('name')) {
+        name = answer.text;
+      }
+    }
+
+    if (!email) {
+      const emailField = form_response?.answers?.find((a) => a.field?.type === 'email');
+      email = emailField?.email || '';
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'No email found in submission' });
+    }
+
+    const scoring = scoreCreditReportTypeform();
+    await createOrUpdateLead({
+      email,
+      name,
+      source: scoring.source,
+    });
+
+    res.json({ success: true, email, source: scoring.source });
+  } catch (error) {
+    console.error('Typeform credit report webhook error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// WEBHOOK: GPT Credit Report Submission
+// ============================================
+app.post('/webhook/gpt-credit-report', async (req, res) => {
+  try {
+    const { email, name, phone } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const scoring = scoreCreditReportGPT();
+    await createOrUpdateLead({
+      email,
+      name: name || '',
+      source: scoring.source,
+    });
+
+    res.json({
+      success: true,
+      message: `Lead ${email} added with source: ${scoring.source}`,
+    });
+  } catch (error) {
+    console.error('GPT credit report webhook error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// WEBHOOK: Calendar Booking (Calendly, Cal.com, etc.)
+// ============================================
+app.post('/webhook/booking', async (req, res) => {
+  try {
+    let email = '';
+    let name = '';
+
+    // Calendly format
+    if (req.body.payload?.email) {
+      email = req.body.payload.email;
+      name = req.body.payload.name;
+    }
+    // Cal.com format
+    else if (req.body.payload?.attendees?.[0]?.email) {
+      email = req.body.payload.attendees[0].email;
+      name = req.body.payload.attendees[0].name;
+    }
+    // Generic format
+    else if (req.body.email) {
+      email = req.body.email;
+      name = req.body.name;
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'No email found in booking' });
+    }
+
+    const scoring = scoreBooked();
+    await createOrUpdateLead({
+      email,
+      name,
+      source: scoring.source,
+    });
+
+    res.json({ success: true, email, message: 'Lead marked as booked' });
+  } catch (error) {
+    console.error('Booking webhook error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// PROCESS: Single Webinar
+// ============================================
+app.post('/process-webinar/:webinarId', async (req, res) => {
+  try {
+    const { webinarId } = req.params;
+    console.log(`Processing webinar: ${webinarId}`);
+
+    const participants = await getWebinarParticipants(webinarId);
+    console.log(`Found ${participants.length} participants`);
+
+    const results = {
+      processed: 0,
+      watchedFull: 0,
+      watchedPartial: 0,
+      errors: [],
+    };
+
+    for (const participant of participants) {
+      try {
+        if (!participant.user_email) continue;
+
+        const scored = scoreWebinarAttendee(participant);
+        await createOrUpdateLead({
+          email: scored.email,
+          name: scored.name,
+          source: scored.source,
+          watchTime: scored.minutesWatched,
+        });
+
+        results.processed++;
+        if (scored.source === 'webinar-watched-full') results.watchedFull++;
+        if (scored.source === 'webinar-watched-partial') results.watchedPartial++;
+      } catch (err) {
+        results.errors.push({ email: participant.user_email, error: err.message });
+      }
+    }
+
+    // Try to get no-shows
+    try {
+      const absentees = await getWebinarAbsentees(webinarId);
+      for (const absentee of absentees) {
+        if (!absentee.email) continue;
+        const scored = scoreNoShow(absentee);
+        await createOrUpdateLead({
+          email: scored.email,
+          name: scored.name,
+          source: scored.source,
+        });
+      }
+      results.noShows = absentees.length;
+    } catch (err) {
+      console.log('Could not process no-shows:', err.message);
+    }
+
+    res.json({ success: true, webinarId, ...results });
+  } catch (error) {
+    console.error('Process webinar error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// PROCESS: Recent Webinars (Last 30 days)
+// ============================================
+app.post('/process-recent-webinars', async (req, res) => {
+  try {
+    console.log('Fetching recent webinars...');
+    const webinars = await getPastWebinars();
+    console.log(`Found ${webinars.length} recent webinars`);
+
+    const results = [];
+
+    for (const webinar of webinars) {
+      try {
+        console.log(`Processing: ${webinar.topic} (${webinar.id})`);
+        const participants = await getWebinarParticipants(webinar.id);
+
+        let processed = 0;
+        let watchedFull = 0;
+
+        for (const participant of participants) {
+          if (!participant.user_email) continue;
+
+          const scored = scoreWebinarAttendee(participant);
+          await createOrUpdateLead({
+            email: scored.email,
+            name: scored.name,
+            source: scored.source,
+            watchTime: scored.minutesWatched,
+          });
+          processed++;
+          if (scored.source === 'webinar-watched-full') watchedFull++;
+        }
+
+        results.push({
+          webinarId: webinar.id,
+          topic: webinar.topic,
+          participantsProcessed: processed,
+          watchedFull,
+        });
+      } catch (err) {
+        results.push({
+          webinarId: webinar.id,
+          topic: webinar.topic,
+          error: err.message,
+        });
+      }
+    }
+
+    res.json({ success: true, webinarsProcessed: results.length, results });
+  } catch (error) {
+    console.error('Process recent webinars error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// START SERVER
+// ============================================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, async () => {
+  console.log(`\n🚀 Lead automation server running on port ${PORT}`);
+  console.log('\nEndpoints:');
+  console.log(`  POST /webhook/typeform-application   - Typeform app`);
+  console.log(`  POST /webhook/typeform-credit-report - Typeform credit report`);
+  console.log(`  POST /webhook/gpt-credit-report      - GPT credit report`);
+  console.log(`  POST /webhook/booking                - Calendar booking`);
+  console.log(`  POST /process-webinar/:id            - Process single webinar`);
+  console.log(`  POST /process-recent-webinars        - Process all recent\n`);
+
+  // Ensure custom fields exist in Close
+  try {
+    await ensureCustomFieldsExist();
+    console.log('✅ Close CRM custom fields ready\n');
+  } catch (error) {
+    console.error('❌ Error setting up Close fields:', error.message);
+  }
+});
