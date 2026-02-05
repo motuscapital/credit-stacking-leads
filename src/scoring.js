@@ -1,4 +1,5 @@
 const PITCH_MINUTE = parseInt(process.env.PITCH_MINUTE || '75', 10);
+const SETTER_MIN_MINUTES = parseInt(process.env.SETTER_MIN_MINUTES || '30', 10);
 
 function scoreWebinarAttendee(participant) {
   // Zoom gives duration in seconds
@@ -9,10 +10,13 @@ function scoreWebinarAttendee(participant) {
 
   if (minutesWatched >= PITCH_MINUTE) {
     source = 'webinar-watched-full';
-    priority = 3; // Warm - watched through pitch
+    priority = 5; // Hot - watched through pitch
+  } else if (minutesWatched >= SETTER_MIN_MINUTES) {
+    source = 'webinar-watched-partial';
+    priority = 3; // Warm - setter eligible (30+ mins)
   } else if (minutesWatched > 0) {
     source = 'webinar-watched-partial';
-    priority = 1; // Cold - left early
+    priority = 1; // Cold - left too early for setter
   }
 
   return {
@@ -21,27 +25,31 @@ function scoreWebinarAttendee(participant) {
     minutesWatched,
     source,
     priority,
+    setterEligible: minutesWatched >= SETTER_MIN_MINUTES,
   };
 }
 
 function scoreTypeformApplication() {
   return {
     source: 'applied-no-booking',
-    priority: 4, // Hot - showed interest
+    priority: 7, // Hot - showed interest, setter eligible
+    setterEligible: true,
   };
 }
 
 function scoreCreditReportGPT() {
   return {
     source: 'credit-report-gpt',
-    priority: 5, // Hottest
+    priority: 8, // Hottest - shared credit info, setter eligible
+    setterEligible: true,
   };
 }
 
 function scoreCreditReportTypeform() {
   return {
     source: 'credit-report-typeform',
-    priority: 5, // Hottest
+    priority: 8, // Hottest - shared credit info, setter eligible
+    setterEligible: true,
   };
 }
 
@@ -50,14 +58,16 @@ function scoreNoShow(registrant) {
     email: registrant.email,
     name: `${registrant.first_name || ''} ${registrant.last_name || ''}`.trim(),
     source: 'webinar-no-show',
-    priority: 0, // Lowest
+    priority: 0, // Lowest - not setter eligible
+    setterEligible: false,
   };
 }
 
 function scoreBooked() {
   return {
     source: 'booked',
-    priority: 10, // Already converted
+    priority: 10, // Already converted - remove from setter list
+    setterEligible: false,
   };
 }
 
@@ -69,4 +79,5 @@ module.exports = {
   scoreNoShow,
   scoreBooked,
   PITCH_MINUTE,
+  SETTER_MIN_MINUTES,
 };

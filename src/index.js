@@ -5,7 +5,7 @@ const {
   getPastWebinars,
   getWebinarAbsentees,
 } = require('./zoom');
-const { createOrUpdateLead, ensureCustomFieldsExist } = require('./close');
+const { createOrUpdateLead, ensureCustomFieldsExist, createSetterSmartView } = require('./close');
 const {
   scoreWebinarAttendee,
   scoreTypeformApplication,
@@ -67,9 +67,10 @@ app.post('/webhook/typeform-application', async (req, res) => {
       email,
       name,
       source: scoring.source,
+      priority: scoring.priority,
     });
 
-    res.json({ success: true, email, source: scoring.source });
+    res.json({ success: true, email, source: scoring.source, setterEligible: scoring.setterEligible });
   } catch (error) {
     console.error('Typeform application webhook error:', error);
     res.status(500).json({ error: error.message });
@@ -109,9 +110,10 @@ app.post('/webhook/typeform-credit-report', async (req, res) => {
       email,
       name,
       source: scoring.source,
+      priority: scoring.priority,
     });
 
-    res.json({ success: true, email, source: scoring.source });
+    res.json({ success: true, email, source: scoring.source, setterEligible: scoring.setterEligible });
   } catch (error) {
     console.error('Typeform credit report webhook error:', error);
     res.status(500).json({ error: error.message });
@@ -134,11 +136,13 @@ app.post('/webhook/gpt-credit-report', async (req, res) => {
       email,
       name: name || '',
       source: scoring.source,
+      priority: scoring.priority,
     });
 
     res.json({
       success: true,
       message: `Lead ${email} added with source: ${scoring.source}`,
+      setterEligible: scoring.setterEligible,
     });
   } catch (error) {
     console.error('GPT credit report webhook error:', error);
@@ -179,9 +183,10 @@ app.post('/webhook/booking', async (req, res) => {
       email,
       name,
       source: scoring.source,
+      priority: scoring.priority,
     });
 
-    res.json({ success: true, email, message: 'Lead marked as booked' });
+    res.json({ success: true, email, message: 'Lead marked as booked (removed from setter list)' });
   } catch (error) {
     console.error('Booking webhook error:', error);
     res.status(500).json({ error: error.message });
@@ -199,10 +204,13 @@ app.post('/process-webinar/:webinarId', async (req, res) => {
     const participants = await getWebinarParticipants(webinarId);
     console.log(`Found ${participants.length} participants`);
 
+    const webinarDate = new Date().toISOString().split('T')[0]; // Today's date
+
     const results = {
       processed: 0,
       watchedFull: 0,
       watchedPartial: 0,
+      setterEligible: 0,
       errors: [],
     };
 
@@ -216,11 +224,14 @@ app.post('/process-webinar/:webinarId', async (req, res) => {
           name: scored.name,
           source: scored.source,
           watchTime: scored.minutesWatched,
+          priority: scored.priority,
+          webinarDate,
         });
 
         results.processed++;
         if (scored.source === 'webinar-watched-full') results.watchedFull++;
         if (scored.source === 'webinar-watched-partial') results.watchedPartial++;
+        if (scored.setterEligible) results.setterEligible++;
       } catch (err) {
         results.errors.push({ email: participant.user_email, error: err.message });
       }
@@ -236,11 +247,23 @@ app.post('/process-webinar/:webinarId', async (req, res) => {
           email: scored.email,
           name: scored.name,
           source: scored.source,
+          priority: scored.priority,
+          webinarDate,
         });
       }
       results.noShows = absentees.length;
     } catch (err) {
       console.log('Could not process no-shows:', err.message);
+    }
+
+    // Create/update the Setter Call List smart view
+    try {
+      await createSetterSmartView(webinarDate);
+      results.smartViewUpdated = true;
+      console.log('✅ Setter Call List smart view updated');
+    } catch (err) {
+      console.error('Could not update smart view:', err.message);
+      results.smartViewError = err.message;
     }
 
     res.json({ success: true, webinarId, ...results });
@@ -260,6 +283,7 @@ app.post('/process-recent-webinars', async (req, res) => {
     console.log(`Found ${webinars.length} recent webinars`);
 
     const results = [];
+    const webinarDate = new Date().toISOString().split('T')[0];
 
     for (const webinar of webinars) {
       try {
@@ -268,6 +292,7 @@ app.post('/process-recent-webinars', async (req, res) => {
 
         let processed = 0;
         let watchedFull = 0;
+        let setterEligible = 0;
 
         for (const participant of participants) {
           if (!participant.user_email) continue;
@@ -278,9 +303,12 @@ app.post('/process-recent-webinars', async (req, res) => {
             name: scored.name,
             source: scored.source,
             watchTime: scored.minutesWatched,
+            priority: scored.priority,
+            webinarDate,
           });
           processed++;
           if (scored.source === 'webinar-watched-full') watchedFull++;
+          if (scored.setterEligible) setterEligible++;
         }
 
         results.push({
@@ -288,6 +316,7 @@ app.post('/process-recent-webinars', async (req, res) => {
           topic: webinar.topic,
           participantsProcessed: processed,
           watchedFull,
+          setterEligible,
         });
       } catch (err) {
         results.push({
@@ -296,6 +325,14 @@ app.post('/process-recent-webinars', async (req, res) => {
           error: err.message,
         });
       }
+    }
+
+    // Create/update the Setter Call List smart view
+    try {
+      await createSetterSmartView(webinarDate);
+      console.log('✅ Setter Call List smart view updated');
+    } catch (err) {
+      console.error('Could not update smart view:', err.message);
     }
 
     res.json({ success: true, webinarsProcessed: results.length, results });
