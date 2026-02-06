@@ -35,42 +35,66 @@ app.get('/', (req, res) => {
 });
 
 // ============================================
-// WEBHOOK: Typeform Application
+// WEBHOOK: Typeform Application (Main qualification form)
 // ============================================
 app.post('/webhook/typeform-application', async (req, res) => {
   try {
     const { form_response } = req.body;
+    const answers = form_response?.answers || [];
 
-    let email = '';
-    let name = '';
+    // Extract fields by field ID (from Typeform structure)
+    const getAnswer = (fieldId) => {
+      const answer = answers.find(a => a.field?.id === fieldId);
+      return answer?.text || answer?.email || answer?.phone_number || answer?.choice?.label || '';
+    };
 
-    for (const answer of form_response?.answers || []) {
-      if (answer.type === 'email') {
-        email = answer.email;
-      }
-      if (answer.type === 'text' && answer.field?.ref?.toLowerCase().includes('name')) {
-        name = answer.text;
-      }
-    }
-
-    if (!email) {
-      const emailField = form_response?.answers?.find((a) => a.field?.type === 'email');
-      email = emailField?.email || '';
-    }
+    const firstName = getAnswer('3aDeSiYqOA8G');
+    const lastName = getAnswer('OWRZpWQY1Byw');
+    const phone = getAnswer('nt58OEKYPr1m');
+    const email = getAnswer('SMBBbqRTngKp');
+    const creditScore = getAnswer('8ggNhSkGlNZ4');
+    const income = getAnswer('X8AtyKppT4Un');
+    const bizRevenue = getAnswer('X388ZvxUH5Hw');
+    const assets = getAnswer('QfFEKPW4lcuF');
 
     if (!email) {
       return res.status(400).json({ error: 'No email found in submission' });
     }
 
-    const scoring = scoreTypeformApplication();
+    // Qualification logic (matches Typeform branching)
+    const isBelow600 = creditScore.toLowerCase().includes('below');
+    const isLowIncome = income.includes('$0-5k');
+    const isLowAssets = assets.includes('$0-10k');
+    const is750Plus = creditScore.includes('750+');
+
+    let qualified = true;
+    if (isBelow600) {
+      qualified = false; // Below 600 always DQ
+    } else if (isLowIncome && isLowAssets && !is750Plus) {
+      qualified = false; // Low income + low assets DQ (unless 750+)
+    }
+
+    // Map to existing Close CRM choices
+    const source = qualified ? 'applied-no-booking' : 'webinar-no-show';
+    const priority = qualified ? 9 : 2; // Qualified = hot for setters, DQ = low priority
+
     await createOrUpdateLead({
       email,
-      name,
-      source: scoring.source,
-      priority: scoring.priority,
+      name: `${firstName} ${lastName}`.trim(),
+      source,
+      priority,
     });
 
-    res.json({ success: true, email, source: scoring.source, setterEligible: scoring.setterEligible });
+    console.log(`Typeform: ${email} → ${source} (credit: ${creditScore}, income: ${income}, assets: ${assets})`);
+
+    res.json({
+      success: true,
+      email,
+      qualified,
+      source,
+      priority,
+      data: { creditScore, income, bizRevenue, assets }
+    });
   } catch (error) {
     console.error('Typeform application webhook error:', error);
     res.status(500).json({ error: error.message });

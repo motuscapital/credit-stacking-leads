@@ -37,6 +37,8 @@ async function ensureCustomFieldsExist() {
       name: 'lead_source',
       type: 'choices',
       choices: [
+        'qualified-no-book',
+        'disqualified',
         'credit-report-gpt',
         'credit-report-typeform',
         'applied-no-booking',
