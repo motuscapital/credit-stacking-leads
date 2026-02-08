@@ -223,12 +223,26 @@ async function createSetterSmartView(webinarDate) {
     const existingView = existingViews.data.data.find(v => v.name === view.name);
 
     if (existingView) {
-      // Update existing view
-      await closeApi.put(`/saved_search/${existingView.id}`, {
-        query: view.query,
-      });
-      console.log(`  ✅ Updated: ${view.name}`);
-      createdViews.push(existingView.id);
+      try {
+        // Try to update existing view
+        await closeApi.put(`/saved_search/${existingView.id}`, {
+          query: view.query,
+        });
+        console.log(`  ✅ Updated: ${view.name}`);
+        createdViews.push(existingView.id);
+      } catch (updateError) {
+        // If update fails (403 permission error), delete and recreate
+        console.log(`  ⚠️  Update failed, recreating: ${view.name}`);
+        await closeApi.delete(`/saved_search/${existingView.id}`);
+        await delay(300);
+        const newView = await closeApi.post('/saved_search/', {
+          name: view.name,
+          query: view.query,
+          _type: 'lead',
+        });
+        console.log(`  ✅ Recreated: ${view.name}`);
+        createdViews.push(newView.data.id);
+      }
     } else {
       // Create new view
       const newView = await closeApi.post('/saved_search/', {
