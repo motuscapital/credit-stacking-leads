@@ -382,9 +382,9 @@ app.post('/setup-smart-views', async (req, res) => {
       message: '3 setter call list smart views created/updated',
       viewCount: viewIds.length,
       views: [
-        '🔥 Hot Leads - Call Today',
-        '🟡 Warm Leads - Call If Time',
-        '🔵 Long Shots - Low Priority',
+        'SMART LIST FOR SETTERS - 🔥 Hot Leads (Call Today)',
+        'SMART LIST FOR SETTERS - 🟡 Warm Leads (Call If Time)',
+        'SMART LIST FOR SETTERS - 🔵 Long Shots (Low Priority)',
       ],
     });
   } catch (error) {
