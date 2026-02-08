@@ -45,6 +45,7 @@ async function ensureCustomFieldsExist() {
         'webinar-watched-full',
         'webinar-watched-partial',
         'webinar-no-show',
+        'typeform-disqualified',
         'booked',
       ],
     });
@@ -190,45 +191,67 @@ async function getLeadStatuses() {
   return response.data.data;
 }
 
-// Create or update the Setter Call List smart view
+// Create or update the 3 Setter Call List smart views
 async function createSetterSmartView(webinarDate) {
   if (!leadSourceFieldId) {
     await ensureCustomFieldsExist();
   }
 
-  const viewName = 'Setter Call List';
-
-  // Close CRM search query:
-  // - lead_source is one of the setter-eligible sources
-  // - NOT booked
-  // - watched 30+ mins OR submitted credit report/application
-  // - sorted by priority descending
-  const query = `custom.${leadSourceFieldId}:("webinar-watched-full" OR "webinar-watched-partial" OR "credit-report-gpt" OR "credit-report-typeform" OR "applied-no-booking") NOT custom.${leadSourceFieldId}:"booked" (custom.${watchTimeFieldId} >= 30 OR custom.${leadSourceFieldId}:("credit-report-gpt" OR "credit-report-typeform" OR "applied-no-booking")) sort:custom.${priorityFieldId} sort_direction:desc`;
-
-  // Check if smart view already exists
+  // Get existing views to check what already exists
   const existingViews = await closeApi.get('/saved_search/', {
     params: { _type: 'lead' }
   });
 
-  const existingView = existingViews.data.data.find(v => v.name === viewName);
+  const views = [
+    {
+      name: '🔥 Hot Leads - Call Today',
+      query: `(custom.${leadSourceFieldId}:"applied-no-booking" OR custom.${leadSourceFieldId}:"webinar-watched-full" OR custom.${leadSourceFieldId}:"credit-report-gpt" OR custom.${leadSourceFieldId}:"credit-report-typeform") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(3)}" sort:custom.${priorityFieldId} sort_direction:desc`,
+    },
+    {
+      name: '🟡 Warm Leads - Call If Time',
+      query: `custom.${leadSourceFieldId}:"webinar-watched-partial" custom.${watchTimeFieldId} >= 30 NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(7)}" sort:custom.${watchTimeFieldId} sort_direction:desc`,
+    },
+    {
+      name: '🔵 Long Shots - Low Priority',
+      query: `(custom.${watchTimeFieldId} >= 30 OR custom.${leadSourceFieldId}:"applied-no-booking") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created < "${getDateDaysAgo(7)}" sort:custom.${priorityFieldId} sort_direction:desc`,
+    },
+  ];
 
-  if (existingView) {
-    // Update existing view
-    await closeApi.put(`/saved_search/${existingView.id}`, {
-      query,
-    });
-    console.log(`Updated Smart View: ${viewName}`);
-    return existingView.id;
-  } else {
-    // Create new view
-    const newView = await closeApi.post('/saved_search/', {
-      name: viewName,
-      query,
-      _type: 'lead',
-    });
-    console.log(`Created Smart View: ${viewName}`);
-    return newView.data.id;
+  const createdViews = [];
+
+  for (const view of views) {
+    const existingView = existingViews.data.data.find(v => v.name === view.name);
+
+    if (existingView) {
+      // Update existing view
+      await closeApi.put(`/saved_search/${existingView.id}`, {
+        query: view.query,
+      });
+      console.log(`  ✅ Updated: ${view.name}`);
+      createdViews.push(existingView.id);
+    } else {
+      // Create new view
+      const newView = await closeApi.post('/saved_search/', {
+        name: view.name,
+        query: view.query,
+        _type: 'lead',
+      });
+      console.log(`  ✅ Created: ${view.name}`);
+      createdViews.push(newView.data.id);
+    }
+
+    // Small delay to avoid rate limiting
+    await delay(300);
   }
+
+  return createdViews;
+}
+
+// Helper: Get date N days ago in YYYY-MM-DD format
+function getDateDaysAgo(days) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().split('T')[0];
 }
 
 // Get custom field IDs (for external use)

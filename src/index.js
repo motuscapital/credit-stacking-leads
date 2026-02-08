@@ -30,6 +30,7 @@ app.get('/', (req, res) => {
       'POST /webhook/booking': 'Calendar booking notifications',
       'POST /process-webinar/:webinarId': 'Process a specific webinar',
       'POST /process-recent-webinars': 'Process all recent webinars',
+      'POST /setup-smart-views': 'Create/update the 3 setter call list smart views',
     },
   });
 });
@@ -74,9 +75,9 @@ app.post('/webhook/typeform-application', async (req, res) => {
       qualified = false; // Low income + low assets DQ (unless 750+)
     }
 
-    // Map to existing Close CRM choices
-    const source = qualified ? 'applied-no-booking' : 'webinar-no-show';
-    const priority = qualified ? 9 : 2; // Qualified = hot for setters, DQ = low priority
+    // Map to Close CRM choices
+    const source = qualified ? 'applied-no-booking' : 'typeform-disqualified';
+    const priority = qualified ? 9 : 0; // Qualified = hot for setters, DQ = never call
 
     await createOrUpdateLead({
       email,
@@ -280,13 +281,13 @@ app.post('/process-webinar/:webinarId', async (req, res) => {
       console.log('Could not process no-shows:', err.message);
     }
 
-    // Create/update the Setter Call List smart view
+    // Create/update the 3 Setter Call List smart views
     try {
-      await createSetterSmartView(webinarDate);
-      results.smartViewUpdated = true;
-      console.log('✅ Setter Call List smart view updated');
+      const viewIds = await createSetterSmartView(webinarDate);
+      results.smartViewsUpdated = viewIds.length;
+      console.log('✅ 3 Setter Call List smart views updated');
     } catch (err) {
-      console.error('Could not update smart view:', err.message);
+      console.error('Could not update smart views:', err.message);
       results.smartViewError = err.message;
     }
 
@@ -351,17 +352,43 @@ app.post('/process-recent-webinars', async (req, res) => {
       }
     }
 
-    // Create/update the Setter Call List smart view
+    // Create/update the 3 Setter Call List smart views
     try {
       await createSetterSmartView(webinarDate);
-      console.log('✅ Setter Call List smart view updated');
+      console.log('✅ 3 Setter Call List smart views updated');
     } catch (err) {
-      console.error('Could not update smart view:', err.message);
+      console.error('Could not update smart views:', err.message);
     }
 
     res.json({ success: true, webinarsProcessed: results.length, results });
   } catch (error) {
     console.error('Process recent webinars error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// SETUP: Create/Update Smart Views Manually
+// ============================================
+app.post('/setup-smart-views', async (req, res) => {
+  try {
+    console.log('Creating/updating smart views...');
+
+    await ensureCustomFieldsExist();
+    const viewIds = await createSetterSmartView();
+
+    res.json({
+      success: true,
+      message: '3 setter call list smart views created/updated',
+      viewCount: viewIds.length,
+      views: [
+        '🔥 Hot Leads - Call Today',
+        '🟡 Warm Leads - Call If Time',
+        '🔵 Long Shots - Low Priority',
+      ],
+    });
+  } catch (error) {
+    console.error('Setup smart views error:', error);
     res.status(500).json({ error: error.message });
   }
 });
