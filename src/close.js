@@ -205,15 +205,15 @@ async function createSetterSmartView(webinarDate) {
   const views = [
     {
       name: 'SMART LIST FOR SETTERS - 🔥 Hot Leads (Call Today)',
-      query: `(custom.${leadSourceFieldId}:"applied-no-booking" OR custom.${leadSourceFieldId}:"webinar-watched-full" OR custom.${leadSourceFieldId}:"credit-report-gpt" OR custom.${leadSourceFieldId}:"credit-report-typeform") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(3)}" sort:custom.${priorityFieldId} sort_direction:desc`,
+      query: `(custom.${leadSourceFieldId}:"applied-no-booking" OR custom.${leadSourceFieldId}:"webinar-watched-full" OR custom.${leadSourceFieldId}:"credit-report-gpt" OR custom.${leadSourceFieldId}:"credit-report-typeform") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(3)}" sort:-custom.${priorityFieldId}`,
     },
     {
       name: 'SMART LIST FOR SETTERS - 🟡 Warm Leads (Call If Time)',
-      query: `custom.${leadSourceFieldId}:"webinar-watched-partial" custom.${watchTimeFieldId} >= 30 NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(7)}" sort:custom.${watchTimeFieldId} sort_direction:desc`,
+      query: `custom.${leadSourceFieldId}:"webinar-watched-partial" custom.${watchTimeFieldId} >= 30 NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(7)}" sort:-custom.${watchTimeFieldId}`,
     },
     {
       name: 'SMART LIST FOR SETTERS - 🔵 Long Shots (Low Priority)',
-      query: `(custom.${watchTimeFieldId} >= 30 OR custom.${leadSourceFieldId}:"applied-no-booking") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created < "${getDateDaysAgo(7)}" sort:custom.${priorityFieldId} sort_direction:desc`,
+      query: `(custom.${watchTimeFieldId} >= 30 OR custom.${leadSourceFieldId}:"applied-no-booking") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created < "${getDateDaysAgo(7)}" sort:-custom.${priorityFieldId}`,
     },
   ];
 
