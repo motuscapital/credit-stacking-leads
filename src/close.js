@@ -205,11 +205,11 @@ async function createSetterSmartView(webinarDate) {
 
   const views = [
     {
-      name: 'SMART LIST FOR SETTERS - 🔥 Hot Leads (Call Today)',
+      name: 'SMART LIST FOR SETTERS - ☎️ Hot Leads (Call Today)',
       query: `(custom.${leadSourceFieldId}:"applied-no-booking" OR custom.${leadSourceFieldId}:"webinar-watched-full" OR custom.${leadSourceFieldId}:"credit-report-gpt" OR custom.${leadSourceFieldId}:"credit-report-typeform") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(3)}" sort:-custom.${priorityFieldId}`,
     },
     {
-      name: 'SMART LIST FOR SETTERS - 🟡 Warm Leads (Call If Time)',
+      name: 'SMART LIST FOR SETTERS - 🔥 Warm Leads (Call If Time)',
       query: `custom.${leadSourceFieldId}:"webinar-watched-partial" custom.${watchTimeFieldId} >= 30 NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(7)}" sort:-custom.${watchTimeFieldId}`,
     },
     {
