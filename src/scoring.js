@@ -10,13 +10,13 @@ function scoreWebinarAttendee(participant) {
 
   if (minutesWatched >= PITCH_MINUTE) {
     source = 'webinar-watched-full';
-    priority = 5; // Hot - watched through pitch
+    priority = 10; // HOT - watched through full pitch
   } else if (minutesWatched >= SETTER_MIN_MINUTES) {
     source = 'webinar-watched-partial';
-    priority = 3; // Warm - setter eligible (30+ mins)
+    priority = 3; // WARM - setter eligible (30+ mins)
   } else if (minutesWatched > 0) {
     source = 'webinar-watched-partial';
-    priority = 1; // Cold - left too early for setter
+    priority = 1; // COLD - left too early for setter
   }
 
   return {
