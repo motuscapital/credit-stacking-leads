@@ -110,6 +110,42 @@ async function findLeadByEmail(email) {
   return response.data.data[0] || null;
 }
 
+// Create a note on a lead with context for setters
+async function createLeadNote(leadId, { source, watchTime, webinarDate }) {
+  const sourceDescriptions = {
+    'booked': '✅ BOOKED - Already scheduled a call',
+    'applied-no-booking': '🔥 HOT - Filled Typeform application & QUALIFIED but didn\'t book',
+    'credit-report-gpt': '💳 Submitted credit report via GPT',
+    'credit-report-typeform': '💳 Submitted credit report via Typeform',
+    'webinar-watched-full': '🎯 Watched FULL webinar (75+ min)',
+    'webinar-watched-partial': '👀 Watched partial webinar (30-74 min)',
+    'webinar-no-show': '❌ Registered but no-show',
+    'typeform-disqualified': '❌ DISQUALIFIED - Credit <600 or low income/assets'
+  };
+
+  const listCategory = priority >= 8 ? '🔥 HOT' : (priority >= 3 ? '🟡 WARM' : '🧊 COLD');
+
+  const noteText = `
+📋 SETTER INFO:
+━━━━━━━━━━━━━━━━━━
+📊 List: ${listCategory}
+📅 Webinar: ${webinarDate || 'Unknown'}
+⏱️  Watch Time: ${watchTime || 0} minutes
+📝 Status: ${sourceDescriptions[source] || source}
+
+🎯 ACTION: ${listCategory === '🔥 HOT' ? 'CALL TODAY - High priority!' : listCategory === '🟡 WARM' ? 'Call if time permits' : 'Low priority - call if no other leads'}
+  `.trim();
+
+  try {
+    await closeApi.post(`/activity/note/`, {
+      lead_id: leadId,
+      note: noteText
+    });
+  } catch (error) {
+    console.log(`Note creation failed for lead ${leadId}:`, error.message);
+  }
+}
+
 async function createLead({ email, name, source, watchTime, priority, webinarDate }) {
   // Ensure fields exist
   if (!leadSourceFieldId) {
@@ -141,6 +177,10 @@ async function createLead({ email, name, source, watchTime, priority, webinarDat
   }
 
   const response = await closeApi.post('/lead/', leadData);
+
+  // Add setter note to new lead
+  await createLeadNote(response.data.id, { source, watchTime, priority, webinarDate });
+
   return response.data;
 }
 
@@ -205,15 +245,15 @@ async function createSetterSmartView(webinarDate) {
 
   const views = [
     {
-      name: 'SMART LIST FOR SETTERS - ☎️ Hot Leads (Call Today)',
+      name: '🔥 HOT - Call Today',
       query: `(custom.${leadSourceFieldId}:"applied-no-booking" OR custom.${leadSourceFieldId}:"webinar-watched-full" OR custom.${leadSourceFieldId}:"credit-report-gpt" OR custom.${leadSourceFieldId}:"credit-report-typeform") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(3)}" sort:-custom.${priorityFieldId}`,
     },
     {
-      name: 'SMART LIST FOR SETTERS - 🔥 Warm Leads (Call If Time)',
+      name: '🟡 WARM - Call If Time',
       query: `custom.${leadSourceFieldId}:"webinar-watched-partial" custom.${watchTimeFieldId} >= 30 NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created >= "${getDateDaysAgo(7)}" sort:-custom.${watchTimeFieldId}`,
     },
     {
-      name: 'SMART LIST FOR SETTERS - 🔵 Long Shots (Low Priority)',
+      name: '🧊 COLD - Low Priority',
       query: `(custom.${watchTimeFieldId} >= 30 OR custom.${leadSourceFieldId}:"applied-no-booking") NOT custom.${leadSourceFieldId}:"booked" NOT custom.${leadSourceFieldId}:"typeform-disqualified" NOT custom.${leadSourceFieldId}:"disqualified" date_created < "${getDateDaysAgo(7)}" sort:-custom.${priorityFieldId}`,
     },
   ];
@@ -228,6 +268,7 @@ async function createSetterSmartView(webinarDate) {
         // Try to update existing view
         await closeApi.put(`/saved_search/${existingView.id}`, {
           query: view.query,
+          shared: true,
         });
         console.log(`  ✅ Updated: ${view.name}`);
         createdViews.push(existingView.id);
@@ -240,6 +281,7 @@ async function createSetterSmartView(webinarDate) {
           name: view.name,
           query: view.query,
           _type: 'lead',
+          shared: true,
         });
         console.log(`  ✅ Recreated: ${view.name}`);
         createdViews.push(newView.data.id);
@@ -250,6 +292,7 @@ async function createSetterSmartView(webinarDate) {
         name: view.name,
         query: view.query,
         _type: 'lead',
+        shared: true,
       });
       console.log(`  ✅ Created: ${view.name}`);
       createdViews.push(newView.data.id);
