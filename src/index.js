@@ -5,7 +5,7 @@ const {
   getPastWebinars,
   getWebinarAbsentees,
 } = require('./zoom');
-const { createOrUpdateLead, ensureCustomFieldsExist, createSetterSmartView } = require('./close');
+const { createOrUpdateLead, ensureCustomFieldsExist, createSetterSmartView, addNotesToExistingLeads } = require('./close');
 const {
   scoreWebinarAttendee,
   scoreTypeformApplication,
@@ -31,6 +31,7 @@ app.get('/', (req, res) => {
       'POST /process-webinar/:webinarId': 'Process a specific webinar',
       'POST /process-recent-webinars': 'Process all recent webinars',
       'POST /setup-smart-views': 'Create/update the 3 setter call list smart views',
+      'POST /add-notes-to-existing-leads': 'Add comprehensive notes to all existing leads',
     },
   });
 });
@@ -390,13 +391,33 @@ app.post('/setup-smart-views', async (req, res) => {
       message: '3 setter call list smart views created/updated',
       viewCount: viewIds.length,
       views: [
-        'SMART LIST FOR SETTERS - 🔥 Hot Leads (Call Today)',
-        'SMART LIST FOR SETTERS - 🟡 Warm Leads (Call If Time)',
-        'SMART LIST FOR SETTERS - 🔵 Long Shots (Low Priority)',
+        '🔥 HOT - Call Today',
+        '🟡 WARM - Call If Time',
+        '🧊 COLD - Low Priority',
       ],
     });
   } catch (error) {
     console.error('Setup smart views error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// ENDPOINT: Add notes to all existing leads
+// ============================================
+app.post('/add-notes-to-existing-leads', async (req, res) => {
+  try {
+    console.log('Adding notes to all existing leads...');
+
+    const result = await addNotesToExistingLeads();
+
+    res.json({
+      success: true,
+      message: `Added comprehensive notes to ${result.count} existing leads`,
+      count: result.count,
+    });
+  } catch (error) {
+    console.error('Add notes error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -355,6 +355,70 @@ function getCustomFieldIds() {
   return { leadSourceFieldId, watchTimeFieldId, priorityFieldId, webinarDateFieldId };
 }
 
+// Add notes to all existing leads (retroactive)
+async function addNotesToExistingLeads() {
+  console.log('Adding notes to all existing leads...');
+
+  if (!leadSourceFieldId) {
+    await ensureCustomFieldsExist();
+  }
+
+  // Fetch all leads with lead_source field
+  let hasMore = true;
+  let skip = 0;
+  const limit = 100;
+  let processedCount = 0;
+
+  while (hasMore) {
+    const response = await closeApi.get('/lead/', {
+      params: {
+        _skip: skip,
+        _limit: limit,
+        query: `custom.${leadSourceFieldId}:*`, // All leads with a lead_source
+      }
+    });
+
+    const leads = response.data.data;
+
+    if (leads.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    for (const lead of leads) {
+      try {
+        const source = lead[`custom.${leadSourceFieldId}`];
+        const watchTime = lead[`custom.${watchTimeFieldId}`];
+        const priority = lead[`custom.${priorityFieldId}`];
+        const webinarDate = lead[`custom.${webinarDateFieldId}`];
+
+        // Create note for this lead
+        await createLeadNote(lead.id, {
+          source,
+          watchTime,
+          priority,
+          webinarDate,
+          typeformData: null, // We don't have historical Typeform data
+        });
+
+        processedCount++;
+        console.log(`  ✅ Added note to: ${lead.display_name || lead.contacts?.[0]?.emails?.[0]?.email}`);
+
+        // Rate limit
+        await delay(300);
+      } catch (error) {
+        console.log(`  ❌ Failed for lead ${lead.id}:`, error.message);
+      }
+    }
+
+    skip += limit;
+    hasMore = response.data.has_more;
+  }
+
+  console.log(`\n✅ Completed! Added notes to ${processedCount} leads`);
+  return { success: true, count: processedCount };
+}
+
 module.exports = {
   closeApi,
   ensureCustomFieldsExist,
@@ -365,4 +429,5 @@ module.exports = {
   getLeadStatuses,
   createSetterSmartView,
   getCustomFieldIds,
+  addNotesToExistingLeads,
 };
