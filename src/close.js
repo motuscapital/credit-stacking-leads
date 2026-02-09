@@ -8,6 +8,7 @@ const closeApi = axios.create({
   },
   headers: {
     'Content-Type': 'application/json',
+    'Referer': 'https://app.close.com',
   },
 });
 
