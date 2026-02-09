@@ -111,7 +111,7 @@ async function findLeadByEmail(email) {
 }
 
 // Create a note on a lead with context for setters
-async function createLeadNote(leadId, { source, watchTime, webinarDate }) {
+async function createLeadNote(leadId, { source, watchTime, priority, webinarDate, typeformData }) {
   const sourceDescriptions = {
     'booked': '✅ BOOKED - Already scheduled a call',
     'applied-no-booking': '🔥 HOT - Filled Typeform application & QUALIFIED but didn\'t book',
@@ -125,15 +125,53 @@ async function createLeadNote(leadId, { source, watchTime, webinarDate }) {
 
   const listCategory = priority >= 8 ? '🔥 HOT' : (priority >= 3 ? '🟡 WARM' : '🧊 COLD');
 
-  const noteText = `
-📋 SETTER INFO:
+  // Build Typeform info section if data exists
+  let typeformInfo = '';
+  if (typeformData) {
+    typeformInfo = `
+📝 TYPEFORM SUBMISSION:
 ━━━━━━━━━━━━━━━━━━
-📊 List: ${listCategory}
-📅 Webinar: ${webinarDate || 'Unknown'}
-⏱️  Watch Time: ${watchTime || 0} minutes
-📝 Status: ${sourceDescriptions[source] || source}
+👤 Name: ${typeformData.name || 'N/A'}
+📞 Phone: ${typeformData.phone || 'N/A'}
+💳 Credit Score: ${typeformData.creditScore || 'N/A'}
+💰 Income: ${typeformData.income || 'N/A'}
+🏢 Business Revenue: ${typeformData.bizRevenue || 'N/A'}
+💵 Liquid Assets: ${typeformData.assets || 'N/A'}
 
-🎯 ACTION: ${listCategory === '🔥 HOT' ? 'CALL TODAY - High priority!' : listCategory === '🟡 WARM' ? 'Call if time permits' : 'Low priority - call if no other leads'}
+`;
+  }
+
+  // Determine why they're in this list
+  let whyInList = '';
+  if (listCategory === '🔥 HOT') {
+    whyInList = source === 'applied-no-booking'
+      ? '✅ Filled out full application & QUALIFIED\n✅ Met all credit/income requirements\n❌ Did NOT book yet - HIGH PRIORITY CALL'
+      : source.includes('credit-report')
+      ? '✅ Shared their credit report (high intent)\n✅ Watched significant portion of webinar\n🎯 Ready to discuss funding options'
+      : '✅ Watched FULL webinar (75+ min)\n✅ Heard complete pitch\n🎯 Engaged and interested - call ASAP';
+  } else if (listCategory === '🟡 WARM') {
+    whyInList = '⚠️  Watched 30-74 minutes (partial webinar)\n⚠️  Didn\'t hear full pitch or take action\n📞 Worth calling but lower priority than HOT leads';
+  } else {
+    whyInList = '❄️  Lead is 7+ days old (getting cold)\n⏰ Follow up if no other leads available\n💡 May need email nurture first';
+  }
+
+  const noteText = `
+📋 SETTER CALL INFO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 LIST: ${listCategory}
+📅 WEBINAR DATE: ${webinarDate || 'Unknown'}
+⏱️  WATCH TIME: ${watchTime || 0} minutes
+📝 STATUS: ${sourceDescriptions[source] || source}
+
+${typeformInfo}
+🎯 WHY IN ${listCategory} LIST:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${whyInList}
+
+🔔 ACTION REQUIRED:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${listCategory === '🔥 HOT' ? '🚨 CALL TODAY - High priority qualified lead!' : listCategory === '🟡 WARM' ? '📞 Call if time permits after HOT list is done' : '❄️  Low priority - call only if no HOT/WARM leads available'}
   `.trim();
 
   try {
@@ -146,7 +184,7 @@ async function createLeadNote(leadId, { source, watchTime, webinarDate }) {
   }
 }
 
-async function createLead({ email, name, source, watchTime, priority, webinarDate }) {
+async function createLead({ email, name, source, watchTime, priority, webinarDate, typeformData }) {
   // Ensure fields exist
   if (!leadSourceFieldId) {
     await ensureCustomFieldsExist();
@@ -179,7 +217,7 @@ async function createLead({ email, name, source, watchTime, priority, webinarDat
   const response = await closeApi.post('/lead/', leadData);
 
   // Add setter note to new lead
-  await createLeadNote(response.data.id, { source, watchTime, priority, webinarDate });
+  await createLeadNote(response.data.id, { source, watchTime, priority, webinarDate, typeformData });
 
   return response.data;
 }
@@ -209,7 +247,7 @@ async function updateLead(leadId, { source, watchTime, priority, webinarDate }) 
   }
 }
 
-async function createOrUpdateLead({ email, name, source, watchTime, priority, webinarDate }) {
+async function createOrUpdateLead({ email, name, source, watchTime, priority, webinarDate, typeformData }) {
   // Rate limit: wait 200ms between API calls
   await delay(200);
 
@@ -221,7 +259,7 @@ async function createOrUpdateLead({ email, name, source, watchTime, priority, we
     return { ...existing, skipped: true };
   }
 
-  const newLead = await createLead({ email, name, source, watchTime, priority, webinarDate });
+  const newLead = await createLead({ email, name, source, watchTime, priority, webinarDate, typeformData });
   console.log(`Created lead: ${email} → ${source} (priority: ${priority})`);
   return { ...newLead, created: true };
 }

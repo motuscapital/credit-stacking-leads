@@ -84,6 +84,14 @@ app.post('/webhook/typeform-application', async (req, res) => {
       name: `${firstName} ${lastName}`.trim(),
       source,
       priority,
+      typeformData: {
+        name: `${firstName} ${lastName}`.trim(),
+        phone,
+        creditScore,
+        income,
+        bizRevenue,
+        assets,
+      },
     });
 
     console.log(`Typeform: ${email} → ${source} (credit: ${creditScore}, income: ${income}, assets: ${assets})`);
